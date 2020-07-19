@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <mpi.h>
 
+// Number of maximum operations to be distributed between processes
 #define MAX_OPS 100
 
 using std::chrono::milliseconds;
@@ -40,20 +41,25 @@ void dispatcher(int size) {
     int freeWorkerRank;
     MPI_Status status;
 
-    while (opsLeft > 0 || doneWorkers < size - 1) {
+    // wait till all workers are done (there are no more tasks left)
+    while (doneWorkers < size - 1) {
         if (0 < opsLeft && opsLeft < MAX_OPS) {
             printf("%d operations left... last one completed by %d\n", opsLeft, freeWorkerRank);
         }
 
+        // wait for results from a worker that finished his task
         MPI_Recv(&freeWorkerRank, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
+        // do something with the data the worker returned
         values[MAX_OPS - opsLeft] = freeWorkerRank;
         --opsLeft;
 
+        // if there are no more operations, mark worker as done
         if (opsLeft <= 0) {
             ++doneWorkers;
         }
 
+        // Send number of operations left to the worker (and possibly his new task to work on)
         MPI_Send(&opsLeft, 1, MPI_INT, status.MPI_SOURCE, status.MPI_TAG, MPI_COMM_WORLD);
     }
 
@@ -68,10 +74,16 @@ void worker(int rank) {
     int opsLeft = MAX_OPS;
     int nbTasks = 0;
 
+    // continue working until there are no more operations left
     while (opsLeft > 0) {
+        // do some operation
         doWork();
         ++nbTasks;
+
+        // send results to the root process
         MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+        // wait for next task (or the end of its job)
         MPI_Recv(&opsLeft, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, nullptr);
     }
 
